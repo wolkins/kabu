@@ -354,6 +354,7 @@ def build_all_features(config: dict | None = None) -> pd.DataFrame:
                  "macd_diff", "bb_pct", "trend_strength", "return_zscore",
                  "obv_norm", "mfi",
                  "dynamic_per", "dynamic_pbr", "dynamic_div_yield",
+                 "dynamic_psr", "eps_growth",
                  "weekly_range_pos", "monthly_range_pos", "quarterly_range_pos",
                  "ma_cross_5_20", "ma_cross_20_60",
                  "weekly_trend_stability", "monthly_trend_stability",
