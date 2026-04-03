@@ -46,9 +46,35 @@ def add_market_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         df = df.join(idx_return5, how="left")
         df = df.join(idx_vol, how="left")
 
+    # --- 市場レジーム特徴量（日経225ベース）---
+    try:
+        n225_df = load_raw("^N225")
+        n225_ret = n225_df["Close"].pct_change()
+        n225_sma20 = n225_df["Close"].rolling(20).mean()
+        n225_sma60 = n225_df["Close"].rolling(60).mean()
+
+        # 市場トレンド方向
+        market_trend = (n225_sma20.pct_change(5) * 100).rename("market_regime_trend")
+        df = df.join(market_trend, how="left")
+
+        # 市場トレンド強度
+        market_strength = (np.where(
+            n225_sma60 > 0, (n225_sma20 / n225_sma60) - 1, 0.0
+        ))
+        df["market_regime_strength"] = pd.Series(
+            market_strength, index=n225_df.index
+        ).reindex(df.index)
+
+        # 市場ボラティリティ状態
+        market_vol = n225_ret.rolling(20).std()
+        market_vol_pctl = market_vol.rolling(252).rank(pct=True).rename("market_vol_state")
+        df = df.join(market_vol_pctl, how="left")
+    except FileNotFoundError:
+        pass
+
     # 前方参照を防ぐため、市場指標は1日シフト
     market_cols = [c for c in df.columns if any(
-        c.startswith(p) for p in ["N225", "GSPC", "JPY"]
+        c.startswith(p) for p in ["N225", "GSPC", "JPY", "market_"]
     )]
     for col in market_cols:
         df[col] = df[col].shift(1)
@@ -124,19 +150,55 @@ def add_multiframe_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_regime_features(df: pd.DataFrame) -> pd.DataFrame:
-    """市場レジーム特徴量（ボラティリティレジーム）"""
+    """市場レジーム特徴量（ボラティリティレジーム + 市場レジームスイッチング）"""
     ret = df["Close"].pct_change()
 
     # 短期・長期ボラティリティ比率
     vol_short = ret.rolling(5).std()
     vol_long = ret.rolling(60).std()
-    df["vol_regime"] = vol_short / vol_long
+    df["vol_regime"] = np.where(vol_long > 0, vol_short / vol_long, 1.0)
 
     # トレンド強度（ADXの簡易版: 方向性の一貫性）
-    df["trend_strength"] = ret.rolling(20).mean() / ret.rolling(20).std()
+    ret_std_20 = ret.rolling(20).std()
+    df["trend_strength"] = np.where(
+        ret_std_20 > 0, ret.rolling(20).mean() / ret_std_20, 0.0
+    )
 
     # 直近リターンの分布位置（z-score）
-    df["return_zscore"] = (ret - ret.rolling(60).mean()) / ret.rolling(60).std()
+    ret_std_60 = ret.rolling(60).std()
+    df["return_zscore"] = np.where(
+        ret_std_60 > 0, (ret - ret.rolling(60).mean()) / ret_std_60, 0.0
+    )
+
+    # --- 市場レジームスイッチング ---
+    # レジーム判定: 20日SMAトレンド + ボラティリティで分類
+    sma20 = df["Close"].rolling(20).mean()
+    sma60 = df["Close"].rolling(60).mean()
+    sma20_slope = sma20.pct_change(5)  # SMA20の5日変化率
+
+    # 上昇/下降/レンジ を連続値で表現（モデルが自然に学習可能）
+    # regime_trend: 正=上昇トレンド、負=下降トレンド、0近辺=レンジ
+    df["regime_trend"] = sma20_slope * 100  # スケーリング
+
+    # regime_strength: トレンドの強さ（SMA20とSMA60の乖離度）
+    df["regime_strength"] = np.where(
+        sma60 > 0, (sma20 / sma60) - 1, 0.0
+    )
+
+    # regime_vol_state: 高ボラ/低ボラ状態（パーセンタイル）
+    vol_20 = ret.rolling(20).std()
+    vol_percentile = vol_20.rolling(252).rank(pct=True)  # 1年間での順位
+    df["regime_vol_state"] = vol_percentile
+
+    # regime_momentum_consistency: リターンの方向一貫性
+    # 直近20日中、正リターンの割合
+    df["regime_up_ratio"] = ret.rolling(20).apply(lambda x: (x > 0).mean(), raw=True)
+
+    # regime_drawdown: 直近高値からの下落率（ドローダウン）
+    rolling_max = df["Close"].rolling(60).max()
+    df["regime_drawdown"] = np.where(
+        rolling_max > 0, (df["Close"] / rolling_max) - 1, 0.0
+    )
 
     return df
 
@@ -217,7 +279,9 @@ def build_all_features(config: dict | None = None) -> pd.DataFrame:
                  "weekly_range_pos", "monthly_range_pos", "quarterly_range_pos",
                  "ma_cross_5_20", "ma_cross_20_60",
                  "weekly_trend_stability", "monthly_trend_stability",
-                 "weekly_momentum_accel", "monthly_momentum_accel"]
+                 "weekly_momentum_accel", "monthly_momentum_accel",
+                 "regime_trend", "regime_strength", "regime_vol_state",
+                 "regime_up_ratio", "regime_drawdown"]
 
     for col in rank_cols:
         if col in df_all.columns:
