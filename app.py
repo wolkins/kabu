@@ -10,7 +10,7 @@ import lightgbm as lgb
 from pathlib import Path
 
 from src.data.fetch import fetch_all, load_raw
-from src.features.builder import build_features, get_feature_columns
+from src.features.builder import build_features, build_all_features, get_feature_columns
 from src.models.train import train_model, train_cross_sectional, predict_latest, MODEL_DIR
 from src.utils.config import load_config, ticker_list, ticker_name, ticker_display
 
@@ -235,12 +235,18 @@ st.subheader("📋 全銘柄予測サマリー")
 
 @st.cache_data(show_spinner="全銘柄の予測を計算中...")
 def _get_all_predictions(_tickers, _config):
-    """全銘柄の予測結果を取得（キャッシュ付き）"""
+    """全銘柄の予測結果を取得（キャッシュ付き、特徴量は1回だけビルド）"""
+    # 全銘柄の特徴量を1回だけ構築（25回→1回に削減）
+    try:
+        df_all = build_all_features(_config)
+    except Exception:
+        df_all = None
+
     results = []
     errors = []
     for ticker in _tickers:
         try:
-            r = predict_latest(ticker, _config)
+            r = predict_latest(ticker, _config, df_all_cache=df_all)
             alpha_mode = r.get("use_alpha", False)
             pred_col = f"{r['horizon']}日後 対N225" if alpha_mode else f"{r['horizon']}日後予測"
             prob_col = "市場超過確率" if alpha_mode else "上昇確率"

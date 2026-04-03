@@ -303,8 +303,12 @@ def train_cross_sectional(config: dict | None = None,
     }
 
 
-def predict_latest(ticker: str, config: dict | None = None, use_cross: bool = True) -> dict:
-    """最新データに対する予測を実行"""
+def predict_latest(ticker: str, config: dict | None = None, use_cross: bool = True,
+                    df_all_cache: pd.DataFrame | None = None) -> dict:
+    """最新データに対する予測を実行
+
+    df_all_cache: 事前にbuild_all_features()した結果を渡すと再計算を省略
+    """
     if config is None:
         config = load_config()
 
@@ -326,7 +330,7 @@ def predict_latest(ticker: str, config: dict | None = None, use_cross: bool = Tr
 
     # クロスセクションモデルの場合、全銘柄の特徴量を構築してランク特徴量を得る
     if model_type == "クロスセクション":
-        df_all = build_all_features(config)
+        df_all = df_all_cache if df_all_cache is not None else build_all_features(config)
         # カテゴリ特徴量を変換（学習時と一致させる）
         for cat_col in CATEGORICAL_FEATURES:
             if cat_col in df_all.columns:
