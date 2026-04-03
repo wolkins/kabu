@@ -363,13 +363,18 @@ def build_all_features(config: dict | None = None) -> pd.DataFrame:
                  "regime_up_ratio", "regime_drawdown",
                  "sector_relative_return"]
 
+    # クロスセクション特徴量を一括計算（fragmentation回避）
+    cs_frames = []
     for col in rank_cols:
         if col in df_all.columns:
-            # 同一日のランク（0~1に正規化）
-            df_all[f"{col}_rank"] = df_all.groupby(df_all.index)[col].rank(pct=True)
-            # 同一日のz-score
             grp = df_all.groupby(df_all.index)[col]
-            df_all[f"{col}_cs_zscore"] = (df_all[col] - grp.transform("mean")) / grp.transform("std")
+            rank_s = grp.rank(pct=True).rename(f"{col}_rank")
+            zscore_s = ((df_all[col] - grp.transform("mean"))
+                        / grp.transform("std")).rename(f"{col}_cs_zscore")
+            cs_frames.extend([rank_s, zscore_s])
+
+    if cs_frames:
+        df_all = pd.concat([df_all] + cs_frames, axis=1)
 
     # NaN除去（クロスセクション特徴量で発生しうる）
     df_all = df_all.dropna()
