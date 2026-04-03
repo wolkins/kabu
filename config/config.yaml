@@ -48,6 +48,7 @@ features:
   bb_window: 20
   bb_std: 2
   sma_windows: [5, 20, 60]
+  mfi_window: 14
   lag_days: [1, 2, 3, 5, 10]
 
 # モデル設定

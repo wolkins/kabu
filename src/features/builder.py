@@ -151,7 +151,8 @@ def build_all_features(config: dict | None = None) -> pd.DataFrame:
 
     # --- クロスセクション特徴量: 同一日付内での銘柄間相対値 ---
     rank_cols = ["rsi", "daily_return", "volume_ratio", "volatility_20",
-                 "macd_diff", "bb_pct", "trend_strength", "return_zscore"]
+                 "macd_diff", "bb_pct", "trend_strength", "return_zscore",
+                 "obv_norm", "mfi"]
 
     for col in rank_cols:
         if col in df_all.columns:

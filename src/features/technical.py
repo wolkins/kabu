@@ -4,6 +4,7 @@ import pandas as pd
 from ta.momentum import RSIIndicator
 from ta.trend import MACD, SMAIndicator
 from ta.volatility import BollingerBands
+from ta.volume import OnBalanceVolumeIndicator, MFIIndicator
 
 
 def add_technical_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
@@ -43,6 +44,16 @@ def add_technical_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
 
     # 出来高変化率
     df["volume_ratio"] = volume / volume.rolling(20).mean()
+
+    # OBV（On Balance Volume）— 期間変化量を総出来高で正規化
+    obv = OnBalanceVolumeIndicator(close=close, volume=volume).on_balance_volume()
+    df["obv_norm"] = (obv - obv.shift(20)) / volume.rolling(20).sum()
+
+    # MFI（Money Flow Index）— 出来高加重RSI
+    df["mfi"] = MFIIndicator(
+        high=high, low=low, close=close, volume=volume,
+        window=feat.get("mfi_window", 14),
+    ).money_flow_index()
 
     # 価格変動
     df["daily_return"] = close.pct_change()
