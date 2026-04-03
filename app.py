@@ -37,6 +37,14 @@ company_name = ticker_name(config, selected_ticker)
 
 chart_days = st.sidebar.slider("チャート表示日数", 30, 500, config["dashboard"]["chart_days"])
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("確信度フィルタ")
+confidence_threshold = st.sidebar.slider(
+    "最低確信度 (%)", 0, 100, 0, step=5,
+    help="設定値以上の確信度を持つ銘柄のみサマリーに表示します",
+)
+sort_by_confidence = st.sidebar.checkbox("確信度順にソート", value=True)
+
 # データ取得ボタン
 if st.sidebar.button("🔄 データ更新", use_container_width=True):
     with st.spinner("Yahoo Financeからデータ取得中..."):
@@ -217,25 +225,62 @@ else:
 # --- 全銘柄一括予測 ---
 st.subheader("📋 全銘柄予測サマリー")
 
-predictions = []
-for ticker in tickers:
-    try:
-        r = predict_latest(ticker, config)
-        alpha_mode = r.get("use_alpha", False)
-        pred_col = f"{r['horizon']}日後 対N225" if alpha_mode else f"{r['horizon']}日後予測"
-        prob_col = "市場超過確率" if alpha_mode else "上昇確率"
-        predictions.append({
-            "銘柄": ticker_display(config, ticker),
-            "終値": f"¥{r['close']:,.0f}",
-            pred_col: r["prediction"],
-            prob_col: f"{r['prediction_proba']:.1%}",
-            "確信度": f"{abs(r['prediction_proba'] - 0.5) * 200:.1f}%",
-            "モデル": r.get("model_type", "-"),
-        })
-    except Exception:
-        pass
+
+@st.cache_data(show_spinner="全銘柄の予測を計算中...")
+def _get_all_predictions(_tickers, _config):
+    """全銘柄の予測結果を取得（キャッシュ付き）"""
+    results = []
+    errors = []
+    for ticker in _tickers:
+        try:
+            r = predict_latest(ticker, _config)
+            alpha_mode = r.get("use_alpha", False)
+            pred_col = f"{r['horizon']}日後 対N225" if alpha_mode else f"{r['horizon']}日後予測"
+            prob_col = "市場超過確率" if alpha_mode else "上昇確率"
+            conf_value = abs(r["prediction_proba"] - 0.5) * 200
+            results.append({
+                "銘柄": ticker_display(_config, ticker),
+                "終値": f"¥{r['close']:,.0f}",
+                pred_col: r["prediction"],
+                prob_col: f"{r['prediction_proba']:.1%}",
+                "確信度": f"{conf_value:.1f}%",
+                "_確信度値": conf_value,
+                "モデル": r.get("model_type", "-"),
+            })
+        except Exception as e:
+            errors.append(f"{ticker}: {e}")
+    return results, errors
+
+
+predictions, pred_errors = _get_all_predictions(tuple(tickers), config)
+
+if pred_errors:
+    with st.expander(f"⚠️ {len(pred_errors)}銘柄で予測取得に失敗"):
+        for err in pred_errors:
+            st.text(err)
 
 if predictions:
-    st.dataframe(pd.DataFrame(predictions), use_container_width=True, hide_index=True)
+    df_pred = pd.DataFrame(predictions)
+    total_count = len(df_pred)
+
+    # 確信度フィルタリング
+    df_pred = df_pred[df_pred["_確信度値"] >= confidence_threshold]
+
+    # 確信度順ソート
+    if sort_by_confidence:
+        df_pred = df_pred.sort_values("_確信度値", ascending=False)
+
+    # 内部用カラムを除去して表示
+    df_display_pred = df_pred.drop(columns=["_確信度値"])
+
+    st.caption(
+        f"確信度 {confidence_threshold}% 以上: "
+        f"{len(df_display_pred)}銘柄 / 全{total_count}銘柄"
+    )
+
+    if len(df_display_pred) > 0:
+        st.dataframe(df_display_pred, use_container_width=True, hide_index=True)
+    else:
+        st.warning("該当する銘柄がありません。サイドバーで閾値を下げてください。")
 else:
     st.info("いずれかの銘柄でモデル学習を実行してください。")
