@@ -66,6 +66,63 @@ def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_multiframe_features(df: pd.DataFrame) -> pd.DataFrame:
+    """マルチタイムフレーム特徴量（週足・月足トレンド）"""
+    close = df["Close"]
+    high = df["High"]
+    low = df["Low"]
+
+    # --- 週足レベル（5日） ---
+    # 週足レンジ内ポジション（ストキャスティクス的）
+    weekly_high = high.rolling(5).max()
+    weekly_low = low.rolling(5).min()
+    weekly_range = weekly_high - weekly_low
+    df["weekly_range_pos"] = np.where(
+        weekly_range > 0, (close - weekly_low) / weekly_range, 0.5
+    )
+    # 週足トレンド安定度（5日リターンの Sharpe 風指標）
+    weekly_ret = close.pct_change(5)
+    weekly_std = weekly_ret.rolling(4).std()
+    df["weekly_trend_stability"] = np.where(
+        weekly_std > 0, weekly_ret.rolling(4).mean() / weekly_std, 0.0
+    )
+    # 週足モメンタム加速度（5日リターンの変化率）
+    df["weekly_momentum_accel"] = weekly_ret.diff(5)
+
+    # --- 月足レベル（20日） ---
+    monthly_high = high.rolling(20).max()
+    monthly_low = low.rolling(20).min()
+    monthly_range = monthly_high - monthly_low
+    df["monthly_range_pos"] = np.where(
+        monthly_range > 0, (close - monthly_low) / monthly_range, 0.5
+    )
+    # 月足トレンド安定度
+    monthly_ret = close.pct_change(20)
+    monthly_std = monthly_ret.rolling(4).std()
+    df["monthly_trend_stability"] = np.where(
+        monthly_std > 0, monthly_ret.rolling(4).mean() / monthly_std, 0.0
+    )
+    # 月足モメンタム加速度
+    df["monthly_momentum_accel"] = monthly_ret.diff(20)
+
+    # --- MAクロス（ゴールデンクロス/デッドクロス）---
+    sma5 = close.rolling(5).mean()
+    sma20 = close.rolling(20).mean()
+    sma60 = close.rolling(60).mean()
+    df["ma_cross_5_20"] = (sma5 / sma20) - 1  # 比率で表現（連続値）
+    df["ma_cross_20_60"] = (sma20 / sma60) - 1
+
+    # --- 長期トレンド（60日）---
+    quarterly_high = high.rolling(60).max()
+    quarterly_low = low.rolling(60).min()
+    quarterly_range = quarterly_high - quarterly_low
+    df["quarterly_range_pos"] = np.where(
+        quarterly_range > 0, (close - quarterly_low) / quarterly_range, 0.5
+    )
+
+    return df
+
+
 def add_regime_features(df: pd.DataFrame) -> pd.DataFrame:
     """市場レジーム特徴量（ボラティリティレジーム）"""
     ret = df["Close"].pct_change()
@@ -117,6 +174,7 @@ def build_features(ticker: str, config: dict | None = None) -> pd.DataFrame:
     df = add_lag_features(df, config)
     df = add_market_features(df, config)
     df = add_calendar_features(df)
+    df = add_multiframe_features(df)
     df = add_regime_features(df)
     df = add_fundamental_features(df, ticker, config)
     df = add_target(df, config["model"]["target_horizon"],
@@ -155,7 +213,11 @@ def build_all_features(config: dict | None = None) -> pd.DataFrame:
     rank_cols = ["rsi", "daily_return", "volume_ratio", "volatility_20",
                  "macd_diff", "bb_pct", "trend_strength", "return_zscore",
                  "obv_norm", "mfi",
-                 "dynamic_per", "dynamic_pbr", "dynamic_div_yield"]
+                 "dynamic_per", "dynamic_pbr", "dynamic_div_yield",
+                 "weekly_range_pos", "monthly_range_pos", "quarterly_range_pos",
+                 "ma_cross_5_20", "ma_cross_20_60",
+                 "weekly_trend_stability", "monthly_trend_stability",
+                 "weekly_momentum_accel", "monthly_momentum_accel"]
 
     for col in rank_cols:
         if col in df_all.columns:
