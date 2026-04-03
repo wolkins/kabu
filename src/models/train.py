@@ -14,7 +14,7 @@ from src.utils.config import load_config, ticker_list
 MODEL_DIR = Path(__file__).resolve().parents[2] / "models"
 
 # クロスセクション学習時のカテゴリ特徴量
-CATEGORICAL_FEATURES = ["ticker_id"]
+CATEGORICAL_FEATURES = ["ticker_id", "sector_id"]
 
 
 def _train_lgbm(X_train, y_train, X_val, y_val, params: dict,
@@ -47,8 +47,8 @@ def train_model(ticker: str, config: dict | None = None) -> dict:
 
     df = build_features(ticker, config)
     feature_cols = get_feature_columns(df)
-    # 個別モデルではticker_idは不要（全行同じ値）
-    feature_cols = [c for c in feature_cols if c != "ticker_id"]
+    # 個別モデルではticker_id, sector_idは不要（全行同じ値）
+    feature_cols = [c for c in feature_cols if c not in ("ticker_id", "sector_id")]
     X = df[feature_cols]
     y = df["target"]
 
@@ -103,9 +103,10 @@ def train_cross_sectional(config: dict | None = None) -> dict:
     X = df_all[feature_cols].copy()
     y = df_all["target"]
 
-    # ticker_idをカテゴリ型に変換
-    if "ticker_id" in X.columns:
-        X["ticker_id"] = X["ticker_id"].astype("category")
+    # カテゴリ特徴量を変換
+    for cat_col in CATEGORICAL_FEATURES:
+        if cat_col in X.columns:
+            X[cat_col] = X[cat_col].astype("category")
 
     model_cfg = config["model"]
     cat_features = [c for c in CATEGORICAL_FEATURES if c in feature_cols]
@@ -222,9 +223,10 @@ def predict_latest(ticker: str, config: dict | None = None, use_cross: bool = Tr
     if model_type == "クロスセクション":
         df_all = build_all_features(config)
         feature_cols = get_feature_columns(df_all)
-        # ticker_idをカテゴリ型に変換（学習時と一致させる）
-        if "ticker_id" in df_all.columns:
-            df_all["ticker_id"] = df_all["ticker_id"].astype("category")
+        # カテゴリ特徴量を変換（学習時と一致させる）
+        for cat_col in CATEGORICAL_FEATURES:
+            if cat_col in df_all.columns:
+                df_all[cat_col] = df_all[cat_col].astype("category")
         # 対象銘柄の最新行を取得
         ticker_id = ticker_list(config).index(ticker)
         mask = df_all["ticker_id"] == ticker_id

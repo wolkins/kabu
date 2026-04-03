@@ -203,6 +203,83 @@ def add_regime_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_sector_commodity_features(df: pd.DataFrame, ticker: str,
+                                  config: dict) -> pd.DataFrame:
+    """セクター・コモディティ相関の動的特徴量を追加"""
+    sectors = config.get("sectors", {})
+    commodities = config.get("commodities", {})
+
+    # --- セクターID（カテゴリ特徴量）---
+    sector_name = sectors.get(ticker, "unknown")
+    unique_sectors = sorted(set(sectors.values()))
+    df["sector_id"] = unique_sectors.index(sector_name) if sector_name in unique_sectors else -1
+
+    # --- セクター内相対リターン ---
+    # 同一セクター銘柄のリターン平均を計算
+    same_sector_tickers = [t for t, s in sectors.items() if s == sector_name and t != ticker]
+    sector_returns = []
+    if same_sector_tickers:
+        for st in same_sector_tickers:
+            try:
+                st_df = load_raw(st)
+                sector_returns.append(st_df["Close"].pct_change().rename(st))
+            except FileNotFoundError:
+                continue
+
+    # 同セクターに他銘柄がいない場合は市場平均（N225）で代用
+    if not sector_returns:
+        try:
+            n225_df = load_raw("^N225")
+            sector_returns.append(n225_df["Close"].pct_change().rename("N225_fallback"))
+        except FileNotFoundError:
+            pass
+
+    if sector_returns:
+        sector_avg = pd.concat(sector_returns, axis=1).mean(axis=1)
+        ticker_ret = df["Close"].pct_change()
+        df["sector_avg_return"] = sector_avg.reindex(df.index)
+        df["sector_relative_return"] = ticker_ret - df["sector_avg_return"]
+        sector_avg_5 = sector_avg.rolling(5).mean()
+        df["sector_momentum_5d"] = sector_avg_5.reindex(df.index)
+    else:
+        df["sector_avg_return"] = 0.0
+        df["sector_relative_return"] = 0.0
+        df["sector_momentum_5d"] = 0.0
+
+    # --- コモディティ特徴量 ---
+    for cmd_ticker, cmd_name in commodities.items():
+        try:
+            cmd_df = load_raw(cmd_ticker)
+        except FileNotFoundError:
+            continue
+        safe = cmd_ticker.replace("=", "").replace(".", "_")
+        cmd_close = cmd_df["Close"]
+        # リターン
+        cmd_ret = cmd_close.pct_change().rename(f"{safe}_return")
+        df = df.join(cmd_ret, how="left")
+        # 5日リターン
+        cmd_ret5 = cmd_close.pct_change(5).rename(f"{safe}_return5")
+        df = df.join(cmd_ret5, how="left")
+        # 20日ボラティリティ
+        cmd_vol = cmd_close.pct_change().rolling(20).std().rename(f"{safe}_vol20")
+        df = df.join(cmd_vol, how="left")
+
+    # コモディティは前方参照防止で1日シフト
+    cmd_cols = [c for c in df.columns if any(
+        c.startswith(cmd_ticker.replace("=", "").replace(".", "_"))
+        for cmd_ticker in commodities.keys()
+    )]
+    for col in cmd_cols:
+        df[col] = df[col].shift(1)
+
+    # セクター平均も1日シフト（前方参照防止）
+    for col in ["sector_avg_return", "sector_relative_return", "sector_momentum_5d"]:
+        if col in df.columns:
+            df[col] = df[col].shift(1)
+
+    return df
+
+
 def add_target(df: pd.DataFrame, horizon: int = 5,
                benchmark: str | None = None) -> pd.DataFrame:
     """予測ターゲット: N日後アルファ（対ベンチマーク超過リターン）が正なら1、負なら0
@@ -239,6 +316,7 @@ def build_features(ticker: str, config: dict | None = None) -> pd.DataFrame:
     df = add_multiframe_features(df)
     df = add_regime_features(df)
     df = add_fundamental_features(df, ticker, config)
+    df = add_sector_commodity_features(df, ticker, config)
     df = add_target(df, config["model"]["target_horizon"],
                     benchmark=config["model"].get("benchmark"))
 
@@ -281,7 +359,8 @@ def build_all_features(config: dict | None = None) -> pd.DataFrame:
                  "weekly_trend_stability", "monthly_trend_stability",
                  "weekly_momentum_accel", "monthly_momentum_accel",
                  "regime_trend", "regime_strength", "regime_vol_state",
-                 "regime_up_ratio", "regime_drawdown"]
+                 "regime_up_ratio", "regime_drawdown",
+                 "sector_relative_return"]
 
     for col in rank_cols:
         if col in df_all.columns:

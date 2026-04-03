@@ -34,7 +34,8 @@ def fetch_all(config: dict | None = None) -> dict[str, pd.DataFrame]:
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
 
-    all_tickers = ticker_list(config) + config["market_indices"]
+    commodity_tickers = list(config.get("commodities", {}).keys())
+    all_tickers = ticker_list(config) + config["market_indices"] + commodity_tickers
     results = {}
 
     for ticker in tqdm(all_tickers, desc="Fetching data"):
