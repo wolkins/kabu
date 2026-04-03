@@ -10,3 +10,4 @@ outputs/
 .claude/
 .serena/
 CLAUDE.md
+.hf_token
