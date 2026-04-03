@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+data/raw/
+data/processed/
+data/cipher-sessions.*
+models/*.txt
+outputs/
+.DS_Store
+.claude/
+CLAUDE.md

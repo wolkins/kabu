@@ -1,0 +1,70 @@
+# 日本株予測システム設定
+
+# 対象銘柄（東証コード.T → 会社名）
+tickers:
+  "7203.T": "トヨタ自動車"
+  "6758.T": "ソニーグループ"
+  "9984.T": "ソフトバンクグループ"
+  "8306.T": "三菱UFJフィナンシャル"
+  "6861.T": "キーエンス"
+  "1925.T": "大和ハウス工業"
+  "2802.T": "味の素"
+  "2914.T": "日本たばこ産業"
+  "4063.T": "信越化学工業"
+  "4502.T": "武田薬品工業"
+  "4661.T": "オリエンタルランド"
+  "5401.T": "日本製鉄"
+  "6501.T": "日立製作所"
+  "6981.T": "村田製作所"
+  "7011.T": "三菱重工業"
+  "7751.T": "キヤノン"
+  "7974.T": "任天堂"
+  "8001.T": "伊藤忠商事"
+  "8058.T": "三菱商事"
+  "8591.T": "オリックス"
+  "8766.T": "東京海上HD"
+  "9101.T": "日本郵船"
+  "9202.T": "ANAホールディングス"
+  "9432.T": "日本電信電話"
+  "9983.T": "ファーストリテイリング"
+
+# 市場指標（クロスマーケット特徴量）
+market_indices:
+  - "^N225"    # 日経225
+  - "^GSPC"    # S&P 500
+  - "JPY=X"    # USD/JPY
+
+# データ取得設定
+data:
+  start_date: "2015-01-01"
+  interval: "1d"
+
+# 特徴量設定
+features:
+  rsi_window: 14
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  bb_window: 20
+  bb_std: 2
+  sma_windows: [5, 20, 60]
+  lag_days: [1, 2, 3, 5, 10]
+
+# モデル設定
+model:
+  test_ratio: 0.2
+  n_splits: 5          # Walk-forward分割数
+  target_horizon: 5    # 予測日数先（5=5営業日後）
+  lgbm_params:
+    objective: "binary"
+    metric: "auc"
+    num_leaves: 31
+    learning_rate: 0.05
+    n_estimators: 500
+    early_stopping_rounds: 50
+    verbose: -1
+
+# Streamlit設定
+dashboard:
+  default_ticker: "7203.T"
+  chart_days: 180

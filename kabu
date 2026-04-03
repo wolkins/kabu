@@ -1,0 +1,4 @@
+#!/bin/bash
+# 日本株予測システム ランチャー
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$DIR/.venv/bin/python" -m run_pipeline "$@"
