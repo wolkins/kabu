@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
+import optuna
 import shap
 from pathlib import Path
 from sklearn.model_selection import TimeSeriesSplit
@@ -10,6 +11,8 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 
 from src.features.builder import build_features, build_all_features, get_feature_columns
 from src.utils.config import load_config, ticker_list
+
+optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 MODEL_DIR = Path(__file__).resolve().parents[2] / "models"
 
@@ -38,6 +41,93 @@ def _train_lgbm(X_train, y_train, X_val, y_val, params: dict,
         ],
     )
     return model
+
+
+def optimize_params(df_all: pd.DataFrame, feature_cols: list[str],
+                    config: dict, n_trials: int = 50,
+                    categorical_feature: list[str] | str = "auto") -> dict:
+    """Optunaでハイパーパラメータを最適化（Walk-forward CVベース）"""
+    X = df_all[feature_cols].copy()
+    y = df_all["target"]
+
+    # カテゴリ型変換
+    if categorical_feature != "auto":
+        for col in categorical_feature:
+            if col in X.columns:
+                X[col] = X[col].astype("category")
+
+    unique_dates = df_all.index.unique().sort_values()
+    n = len(unique_dates)
+    n_splits = config["model"]["n_splits"]
+
+    def objective(trial):
+        params = {
+            "objective": "binary",
+            "metric": "auc",
+            "verbosity": -1,
+            "num_leaves": trial.suggest_int("num_leaves", 15, 127),
+            "max_depth": trial.suggest_int("max_depth", 3, 12),
+            "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.1, log=True),
+            "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 5, 100),
+            "feature_fraction": trial.suggest_float("feature_fraction", 0.4, 1.0),
+            "bagging_fraction": trial.suggest_float("bagging_fraction", 0.4, 1.0),
+            "bagging_freq": trial.suggest_int("bagging_freq", 1, 10),
+            "lambda_l1": trial.suggest_float("lambda_l1", 1e-8, 10.0, log=True),
+            "lambda_l2": trial.suggest_float("lambda_l2", 1e-8, 10.0, log=True),
+        }
+
+        aucs = []
+        for fold in range(n_splits):
+            split_point = int(n * (fold + 1) / (n_splits + 1))
+            val_start = split_point
+            val_end = int(n * (fold + 2) / (n_splits + 1))
+
+            train_dates = unique_dates[:split_point]
+            val_dates = unique_dates[val_start:val_end]
+
+            train_mask = df_all.index.isin(train_dates)
+            val_mask = df_all.index.isin(val_dates)
+
+            X_train, X_val = X[train_mask], X[val_mask]
+            y_train, y_val = y[train_mask], y[val_mask]
+
+            if len(X_val) == 0 or y_val.nunique() < 2:
+                continue
+
+            model = _train_lgbm(X_train, y_train, X_val, y_val,
+                                {**params, "n_estimators": 500,
+                                 "early_stopping_rounds": 30},
+                                categorical_feature=categorical_feature)
+            y_pred = model.predict(X_val)
+            auc = roc_auc_score(y_val, y_pred)
+            aucs.append(auc)
+
+            # Fold単位でPruning判定
+            trial.report(auc, fold)
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
+
+        return np.mean(aucs) if aucs else 0.5
+
+    study = optuna.create_study(
+        direction="maximize",
+        pruner=optuna.pruners.MedianPruner(n_warmup_steps=2),
+    )
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+
+    best = study.best_params
+    best.update({
+        "objective": "binary",
+        "metric": "auc",
+        "verbose": -1,
+        "n_estimators": 1000,
+        "early_stopping_rounds": 80,
+    })
+
+    print(f"  Optuna最適化完了 (best AUC: {study.best_value:.4f})")
+    print(f"  最適パラメータ: {study.best_params}")
+
+    return best
 
 
 def train_model(ticker: str, config: dict | None = None) -> dict:
@@ -93,7 +183,9 @@ def train_model(ticker: str, config: dict | None = None) -> dict:
     }
 
 
-def train_cross_sectional(config: dict | None = None) -> dict:
+def train_cross_sectional(config: dict | None = None,
+                          use_optuna: bool = False,
+                          n_trials: int = 50) -> dict:
     """全銘柄を一括学習（クロスセクション学習）"""
     if config is None:
         config = load_config()
@@ -110,6 +202,16 @@ def train_cross_sectional(config: dict | None = None) -> dict:
 
     model_cfg = config["model"]
     cat_features = [c for c in CATEGORICAL_FEATURES if c in feature_cols]
+
+    # --- Optunaによるハイパーパラメータ最適化 ---
+    if use_optuna:
+        print(f"  Optunaでハイパーパラメータ最適化中 ({n_trials}試行)...")
+        lgbm_params = optimize_params(
+            df_all, feature_cols, config, n_trials=n_trials,
+            categorical_feature=cat_features,
+        )
+    else:
+        lgbm_params = model_cfg["lgbm_params"]
 
     # --- Walk-forward CV で評価 ---
     unique_dates = df_all.index.unique().sort_values()
@@ -138,7 +240,7 @@ def train_cross_sectional(config: dict | None = None) -> dict:
             continue
 
         model = _train_lgbm(X_train, y_train, X_val, y_val,
-                            model_cfg["lgbm_params"],
+                            lgbm_params,
                             categorical_feature=cat_features)
 
         y_pred_proba = model.predict(X_val)
@@ -166,7 +268,7 @@ def train_cross_sectional(config: dict | None = None) -> dict:
     y_train, y_val = y[train_mask], y[val_mask]
 
     final_model = _train_lgbm(X_train, y_train, X_val, y_val,
-                              model_cfg["lgbm_params"],
+                              lgbm_params,
                               categorical_feature=cat_features)
 
     final_pred = final_model.predict(X_val)

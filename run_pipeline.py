@@ -21,9 +21,9 @@ def main():
         train_model(ticker, config)
 
     print("\n" + "=" * 60)
-    print("Step 3: クロスセクション学習（全銘柄一括）")
+    print("Step 3: クロスセクション学習（全銘柄一括 + Optuna最適化）")
     print("=" * 60)
-    train_cross_sectional(config)
+    train_cross_sectional(config, use_optuna=True, n_trials=50)
 
     print("\n" + "=" * 60)
     print("Step 4: 最新予測（クロスセクションモデル）")

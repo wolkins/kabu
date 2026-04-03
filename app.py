@@ -66,6 +66,13 @@ if st.sidebar.button("🧠 全銘柄一括学習", use_container_width=True):
         f"一括学習完了! 平均AUC: {result['scores']['auc'].mean():.4f}"
     )
 
+if st.sidebar.button("🔬 Optuna最適化学習", use_container_width=True):
+    with st.spinner("Optunaでハイパーパラメータ最適化中（50試行）..."):
+        result = train_cross_sectional(config, use_optuna=True, n_trials=50)
+    st.sidebar.success(
+        f"最適化学習完了! 平均AUC: {result['scores']['auc'].mean():.4f}"
+    )
+
 
 # --- メインコンテンツ ---
 try:
