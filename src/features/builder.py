@@ -32,11 +32,18 @@ def add_market_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
             continue
 
         safe = idx_ticker.replace("^", "").replace("=", "").replace(".", "_")
-        idx_close = idx_df["Close"].rename(f"{safe}_close")
-        idx_return = idx_close.pct_change().rename(f"{safe}_return")
+        idx_close = idx_df["Close"]
 
-        df = df.join(idx_close, how="left")
+        # リターン（絶対値ではなく変化率を使う）
+        idx_return = idx_close.pct_change().rename(f"{safe}_return")
+        # 5日リターン
+        idx_return5 = idx_close.pct_change(5).rename(f"{safe}_return5")
+        # 20日ボラティリティ
+        idx_vol = idx_close.pct_change().rolling(20).std().rename(f"{safe}_vol20")
+
         df = df.join(idx_return, how="left")
+        df = df.join(idx_return5, how="left")
+        df = df.join(idx_vol, how="left")
 
     # 前方参照を防ぐため、市場指標は1日シフト
     market_cols = [c for c in df.columns if any(
@@ -97,8 +104,9 @@ def build_features(ticker: str, config: dict | None = None) -> pd.DataFrame:
     df = add_regime_features(df)
     df = add_target(df, config["model"]["target_horizon"])
 
-    # 銘柄識別用カラム（一括学習用）
-    df["ticker"] = ticker
+    # 銘柄識別用カラム（一括学習用: カテゴリ型）
+    tickers = ticker_list(config)
+    df["ticker_id"] = tickers.index(ticker) if ticker in tickers else -1
 
     # NaN行を除去
     df = df.dropna()
@@ -111,7 +119,7 @@ def build_features(ticker: str, config: dict | None = None) -> pd.DataFrame:
 
 
 def build_all_features(config: dict | None = None) -> pd.DataFrame:
-    """全銘柄の特徴量を結合（クロスセクション学習用）"""
+    """全銘柄の特徴量を結合し、クロスセクション特徴量を追加"""
     if config is None:
         config = load_config()
 
@@ -122,10 +130,35 @@ def build_all_features(config: dict | None = None) -> pd.DataFrame:
             dfs.append(df)
         except FileNotFoundError:
             print(f"  {ticker}: データなし、スキップ")
-    return pd.concat(dfs, axis=0).sort_index()
+
+    df_all = pd.concat(dfs, axis=0).sort_index()
+
+    # --- クロスセクション特徴量: 同一日付内での銘柄間相対値 ---
+    rank_cols = ["rsi", "daily_return", "volume_ratio", "volatility_20",
+                 "macd_diff", "bb_pct", "trend_strength", "return_zscore"]
+
+    for col in rank_cols:
+        if col in df_all.columns:
+            # 同一日のランク（0~1に正規化）
+            df_all[f"{col}_rank"] = df_all.groupby(df_all.index)[col].rank(pct=True)
+            # 同一日のz-score
+            grp = df_all.groupby(df_all.index)[col]
+            df_all[f"{col}_cs_zscore"] = (df_all[col] - grp.transform("mean")) / grp.transform("std")
+
+    # NaN除去（クロスセクション特徴量で発生しうる）
+    df_all = df_all.dropna()
+
+    return df_all
 
 
 def get_feature_columns(df: pd.DataFrame) -> list[str]:
     """学習に使う特徴量カラム名のリストを返す"""
-    exclude = {"Open", "High", "Low", "Close", "Volume", "target", "future_return", "ticker"}
+    # 絶対値系の価格カラムを除外（銘柄間でスケールが異なり支配的になる）
+    exclude = {
+        "Open", "High", "Low", "Close", "Volume", "target", "future_return",
+        "bb_high", "bb_low", "bb_mid",  # 比率版(bb_width, bb_pct)を使う
+    }
+    # SMA絶対値も除外（比率版 sma_X_ratio を使う）
+    sma_abs = {c for c in df.columns if c.startswith("sma_") and not c.endswith("_ratio")}
+    exclude |= sma_abs
     return [c for c in df.columns if c not in exclude]

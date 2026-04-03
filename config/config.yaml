@@ -58,10 +58,14 @@ model:
   lgbm_params:
     objective: "binary"
     metric: "auc"
-    num_leaves: 31
-    learning_rate: 0.05
-    n_estimators: 500
-    early_stopping_rounds: 50
+    num_leaves: 63
+    learning_rate: 0.03
+    n_estimators: 1000
+    early_stopping_rounds: 80
+    min_data_in_leaf: 10
+    feature_fraction: 0.8
+    bagging_fraction: 0.8
+    bagging_freq: 5
     verbose: -1
 
 # Streamlit設定
