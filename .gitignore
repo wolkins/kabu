@@ -11,3 +11,4 @@ outputs/
 .serena/
 CLAUDE.md
 .hf_token
+logs/
