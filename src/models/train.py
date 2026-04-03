@@ -321,10 +321,12 @@ def predict_latest(ticker: str, config: dict | None = None, use_cross: bool = Tr
     else:
         raise FileNotFoundError(f"モデルが見つかりません: {ticker}")
 
+    # モデルが学習した特徴量名を取得（保存済みモデルとの整合性を保証）
+    model_feature_names = model.feature_name()
+
     # クロスセクションモデルの場合、全銘柄の特徴量を構築してランク特徴量を得る
     if model_type == "クロスセクション":
         df_all = build_all_features(config)
-        feature_cols = get_feature_columns(df_all)
         # カテゴリ特徴量を変換（学習時と一致させる）
         for cat_col in CATEGORICAL_FEATURES:
             if cat_col in df_all.columns:
@@ -333,14 +335,22 @@ def predict_latest(ticker: str, config: dict | None = None, use_cross: bool = Tr
         ticker_id = ticker_list(config).index(ticker)
         mask = df_all["ticker_id"] == ticker_id
         df_ticker = df_all[mask]
-        latest = df_ticker[feature_cols].iloc[[-1]]
+        # モデルの特徴量に合わせる（reindexで不足列はNaN補完、順序も一致）
+        feature_cols = model_feature_names
+        latest = df_ticker.reindex(columns=model_feature_names).iloc[[-1]]
+        missing = [c for c in model_feature_names if c not in df_ticker.columns]
+        if missing:
+            print(f"  警告: モデルが期待する特徴量がデータに不足: {missing}")
         latest_date = df_ticker.index[-1]
         latest_close = df_ticker["Close"].iloc[-1]
     else:
         df = build_features(ticker, config)
-        feature_cols = get_feature_columns(df)
-        feature_cols = [c for c in feature_cols if c != "ticker_id"]
-        latest = df[feature_cols].iloc[[-1]]
+        # モデルの特徴量に合わせる
+        feature_cols = model_feature_names
+        latest = df.reindex(columns=model_feature_names).iloc[[-1]]
+        missing = [c for c in model_feature_names if c not in df.columns]
+        if missing:
+            print(f"  警告: モデルが期待する特徴量がデータに不足: {missing}")
         latest_date = df.index[-1]
         latest_close = df["Close"].iloc[-1]
 
