@@ -6,6 +6,7 @@ from pathlib import Path
 
 from src.data.fetch import load_raw
 from src.features.technical import add_technical_indicators
+from src.features.fundamental import add_fundamental_features
 from src.utils.config import load_config, ticker_list
 
 PROCESSED_DIR = Path(__file__).resolve().parents[2] / "data" / "processed"
@@ -117,6 +118,7 @@ def build_features(ticker: str, config: dict | None = None) -> pd.DataFrame:
     df = add_market_features(df, config)
     df = add_calendar_features(df)
     df = add_regime_features(df)
+    df = add_fundamental_features(df, ticker, config)
     df = add_target(df, config["model"]["target_horizon"],
                     benchmark=config["model"].get("benchmark"))
 
@@ -152,7 +154,8 @@ def build_all_features(config: dict | None = None) -> pd.DataFrame:
     # --- クロスセクション特徴量: 同一日付内での銘柄間相対値 ---
     rank_cols = ["rsi", "daily_return", "volume_ratio", "volatility_20",
                  "macd_diff", "bb_pct", "trend_strength", "return_zscore",
-                 "obv_norm", "mfi"]
+                 "obv_norm", "mfi",
+                 "dynamic_per", "dynamic_pbr", "dynamic_div_yield"]
 
     for col in rank_cols:
         if col in df_all.columns:

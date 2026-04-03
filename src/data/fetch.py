@@ -48,6 +48,11 @@ def fetch_all(config: dict | None = None) -> dict[str, pd.DataFrame]:
         results[ticker] = df
         print(f"  {ticker}: {len(df)} rows ({df.index[0].date()} ~ {df.index[-1].date()})")
 
+    # ファンダメンタルズデータも取得・キャッシュ
+    from src.features.fundamental import fetch_fundamentals
+    print("Fetching fundamentals...")
+    fetch_fundamentals(config)
+
     return results
 
 
