@@ -7,14 +7,18 @@ from pathlib import Path
 
 from src.data.fetch import fetch_all
 from src.features.builder import build_features, build_all_features, get_feature_columns
-from src.models.train import train_cross_sectional, predict_latest
+from src.models.train import train_cross_sectional, predict_latest, MODEL_DIR
 from src.utils.config import load_config, ticker_list, ticker_name, ticker_display
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "outputs" / "predictions"
 
 
-def run_batch(use_optuna: bool = False, n_trials: int = 50):
-    """バッチ実行: データ取得 → 学習 → 全銘柄予測 → JSON保存"""
+def run_batch(use_optuna: bool = False, n_trials: int = 50,
+              skip_train: bool = False):
+    """バッチ実行: データ取得 → 学習 → 全銘柄予測 → JSON保存
+
+    skip_train: Trueなら学習をスキップし、既存モデルで予測のみ実行
+    """
     config = load_config()
     tickers = ticker_list(config)
     horizon = config["model"]["target_horizon"]
@@ -27,12 +31,21 @@ def run_batch(use_optuna: bool = False, n_trials: int = 50):
     fetch_all(config)
 
     # Step 2: クロスセクション学習
-    print("\n" + "=" * 60)
-    print("Step 2: クロスセクション学習")
-    print("=" * 60)
-    result = train_cross_sectional(config, use_optuna=use_optuna, n_trials=n_trials)
-    cv_auc = result["scores"]["auc"].mean()
-    print(f"  CV Mean AUC: {cv_auc:.4f}")
+    cv_auc = 0.0
+    if skip_train:
+        cross_path = MODEL_DIR / "cross_sectional_lgbm.txt"
+        if not cross_path.exists():
+            print("\n  モデルが存在しないため、学習を実行します...")
+            skip_train = False
+        else:
+            print("\n  学習スキップ（既存モデルを使用）")
+    if not skip_train:
+        print("\n" + "=" * 60)
+        print("Step 2: クロスセクション学習")
+        print("=" * 60)
+        result = train_cross_sectional(config, use_optuna=use_optuna, n_trials=n_trials)
+        cv_auc = result["scores"]["auc"].mean()
+        print(f"  CV Mean AUC: {cv_auc:.4f}")
 
     # Step 3: 全銘柄予測
     print("\n" + "=" * 60)
@@ -162,5 +175,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="日次バッチ予測")
     parser.add_argument("--optuna", action="store_true", help="Optuna最適化を有効化")
     parser.add_argument("--trials", type=int, default=50, help="Optuna試行回数")
+    parser.add_argument("--skip-train", action="store_true",
+                        help="学習をスキップし既存モデルで予測のみ実行")
     args = parser.parse_args()
-    run_batch(use_optuna=args.optuna, n_trials=args.trials)
+    run_batch(use_optuna=args.optuna, n_trials=args.trials,
+              skip_train=args.skip_train)
