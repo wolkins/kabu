@@ -55,6 +55,7 @@ model:
   test_ratio: 0.2
   n_splits: 5          # Walk-forward分割数
   target_horizon: 5    # 予測日数先（5=5営業日後）
+  benchmark: "^N225"   # アルファ計算のベンチマーク（日経225）
   lgbm_params:
     objective: "binary"
     metric: "auc"

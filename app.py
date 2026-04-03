@@ -149,22 +149,31 @@ if cross_path.exists() or single_path.exists():
     result = predict_latest(selected_ticker, config)
     horizon = result.get("horizon", config["model"]["target_horizon"])
 
+    use_alpha = result.get("use_alpha", False)
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("基準日", str(result["date"].date()))
     with col2:
         st.metric("終値", f"¥{result['close']:,.0f}")
     with col3:
-        color = "🔴" if result["prediction"] == "下落" else "🟢"
+        if use_alpha:
+            color = "🟢" if result["prediction"] == "市場超過" else "🔴"
+            label = f"{horizon}営業日後 対N225"
+        else:
+            color = "🟢" if result["prediction"] != "下落" else "🔴"
+            label = f"{horizon}営業日後予測"
         st.metric(
-            f"{horizon}営業日後予測",
+            label,
             f"{color} {result['prediction']}",
             f"確信度: {abs(result['prediction_proba'] - 0.5) * 200:.1f}%",
         )
     with col4:
         st.metric("モデル", result.get("model_type", "個別"))
 
-    st.caption(f"上昇確率: {result['prediction_proba']:.1%}")
+    if use_alpha:
+        st.caption(f"市場超過確率: {result['prediction_proba']:.1%}（日経225対比アルファ予測）")
+    else:
+        st.caption(f"上昇確率: {result['prediction_proba']:.1%}")
 
     # SHAP分析
     st.subheader("📊 予測要因分析 (SHAP)")
@@ -191,8 +200,11 @@ if cross_path.exists() or single_path.exists():
         text=shap_df["feature_value"].apply(lambda v: f"{v:.4f}"),
         textposition="auto",
     ))
+    shap_title = ("予測への寄与度 TOP15（→市場超過方向 / ←市場未満方向）"
+                  if use_alpha else
+                  "予測への寄与度 TOP15（→上昇方向 / ←下落方向）")
     fig_shap.update_layout(
-        title="予測への寄与度 TOP15（→上昇方向 / ←下落方向）",
+        title=shap_title,
         height=500, yaxis=dict(autorange="reversed"),
         margin=dict(l=150, r=50, t=50, b=30),
     )
@@ -209,11 +221,14 @@ predictions = []
 for ticker in tickers:
     try:
         r = predict_latest(ticker, config)
+        alpha_mode = r.get("use_alpha", False)
+        pred_col = f"{r['horizon']}日後 対N225" if alpha_mode else f"{r['horizon']}日後予測"
+        prob_col = "市場超過確率" if alpha_mode else "上昇確率"
         predictions.append({
             "銘柄": ticker_display(config, ticker),
             "終値": f"¥{r['close']:,.0f}",
-            f"{r['horizon']}日後予測": r["prediction"],
-            "上昇確率": f"{r['prediction_proba']:.1%}",
+            pred_col: r["prediction"],
+            prob_col: f"{r['prediction_proba']:.1%}",
             "確信度": f"{abs(r['prediction_proba'] - 0.5) * 200:.1f}%",
             "モデル": r.get("model_type", "-"),
         })

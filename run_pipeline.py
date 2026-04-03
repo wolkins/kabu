@@ -29,10 +29,12 @@ def main():
     print("Step 4: 最新予測（クロスセクションモデル）")
     print("=" * 60)
     horizon = config["model"]["target_horizon"]
+    use_alpha = config["model"].get("benchmark") is not None
+    prob_label = "市場超過確率" if use_alpha else "上昇確率"
     for ticker in ticker_list(config):
         result = predict_latest(ticker, config)
         print(f"  {ticker_display(config, ticker)}: {result['prediction']} "
-              f"(上昇確率: {result['prediction_proba']:.1%}, "
+              f"({prob_label}: {result['prediction_proba']:.1%}, "
               f"{horizon}日後, モデル: {result['model_type']})")
 
     print("\n" + "=" * 60)

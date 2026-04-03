@@ -8,4 +8,5 @@ models/*.txt
 outputs/
 .DS_Store
 .claude/
+.serena/
 CLAUDE.md

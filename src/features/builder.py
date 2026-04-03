@@ -83,11 +83,26 @@ def add_regime_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def add_target(df: pd.DataFrame, horizon: int = 5) -> pd.DataFrame:
-    """予測ターゲット: N日後リターンが正なら1、負なら0"""
-    future_return = df["Close"].shift(-horizon) / df["Close"] - 1
-    df["future_return"] = future_return
-    df["target"] = (future_return > 0).astype(int)
+def add_target(df: pd.DataFrame, horizon: int = 5,
+               benchmark: str | None = None) -> pd.DataFrame:
+    """予測ターゲット: N日後アルファ（対ベンチマーク超過リターン）が正なら1、負なら0
+
+    benchmark が指定されている場合、銘柄リターンからベンチマークリターンを差し引いた
+    アルファを予測対象とする。未指定の場合は従来の絶対リターンを使用。
+    """
+    stock_return = df["Close"].shift(-horizon) / df["Close"] - 1
+
+    if benchmark:
+        bench_df = load_raw(benchmark)
+        bench_return = bench_df["Close"].shift(-horizon) / bench_df["Close"] - 1
+        bench_return = bench_return.reindex(df.index)
+        alpha = stock_return - bench_return
+        df["future_return"] = alpha
+        df["benchmark_return"] = bench_return.reindex(df.index)
+    else:
+        df["future_return"] = stock_return
+
+    df["target"] = (df["future_return"] > 0).astype(int)
     return df
 
 
@@ -102,7 +117,8 @@ def build_features(ticker: str, config: dict | None = None) -> pd.DataFrame:
     df = add_market_features(df, config)
     df = add_calendar_features(df)
     df = add_regime_features(df)
-    df = add_target(df, config["model"]["target_horizon"])
+    df = add_target(df, config["model"]["target_horizon"],
+                    benchmark=config["model"].get("benchmark"))
 
     # 銘柄識別用カラム（一括学習用: カテゴリ型）
     tickers = ticker_list(config)
@@ -156,6 +172,7 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
     # 絶対値系の価格カラムを除外（銘柄間でスケールが異なり支配的になる）
     exclude = {
         "Open", "High", "Low", "Close", "Volume", "target", "future_return",
+        "benchmark_return",
         "bb_high", "bb_low", "bb_mid",  # 比率版(bb_width, bb_pct)を使う
     }
     # SMA絶対値も除外（比率版 sma_X_ratio を使う）

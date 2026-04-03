@@ -247,15 +247,22 @@ def predict_latest(ticker: str, config: dict | None = None, use_cross: bool = Tr
     shap_values = explainer.shap_values(latest)
 
     horizon = config["model"]["target_horizon"]
+    use_alpha = config["model"].get("benchmark") is not None
+
+    if use_alpha:
+        prediction = "市場超過" if proba > 0.5 else "市場未満"
+    else:
+        prediction = "上昇" if proba > 0.5 else "下落"
 
     return {
         "ticker": ticker,
         "date": latest_date,
         "close": latest_close,
         "prediction_proba": proba,
-        "prediction": "上昇" if proba > 0.5 else "下落",
+        "prediction": prediction,
         "horizon": horizon,
         "model_type": model_type,
+        "use_alpha": use_alpha,
         "shap_values": shap_values,
         "feature_names": feature_cols,
         "feature_values": latest.iloc[0].to_dict(),
