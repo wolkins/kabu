@@ -1,5 +1,6 @@
 """テクニカル指標の計算"""
 
+import numpy as np
 import pandas as pd
 from ta.momentum import RSIIndicator
 from ta.trend import MACD, SMAIndicator
@@ -59,5 +60,47 @@ def add_technical_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     df["daily_return"] = close.pct_change()
     df["high_low_ratio"] = (high - low) / close
     df["volatility_20"] = df["daily_return"].rolling(20).std()
+
+    # === ミクロ構造特徴量（Phase 1: Codex/Gemini提案）===
+    open_ = df["Open"]
+    prev_close = close.shift(1)
+
+    # Overnight gap: 前日終値→当日始値の変化率
+    df["overnight_gap"] = (open_ / prev_close) - 1
+
+    # Intraday return: 当日始値→当日終値の変化率
+    df["intraday_return"] = (close / open_) - 1
+
+    # Intraday reversal: オーバーナイトと日中の符号が逆ならリバーサル
+    # 連続値: -1 ~ 1（負ならリバーサル傾向）
+    df["intraday_reversal"] = -np.sign(df["overnight_gap"]) * df["intraday_return"]
+
+    # Parkinson volatility（高値・安値ベース、20日窓）
+    # σ_P = sqrt( (1/(4*ln(2))) * mean( (ln(H/L))^2 ) )
+    log_hl_sq = (np.log(high / low) ** 2)
+    df["parkinson_vol_20"] = np.sqrt(
+        log_hl_sq.rolling(20).mean() / (4 * np.log(2))
+    )
+
+    # Garman-Klass volatility（OHLCベース、20日窓）
+    # σ_GK = sqrt( mean( 0.5*(ln(H/L))^2 - (2ln2 - 1)*(ln(C/O))^2 ) )
+    log_co_sq = (np.log(close / open_) ** 2)
+    gk_term = 0.5 * log_hl_sq - (2 * np.log(2) - 1) * log_co_sq
+    df["garman_klass_vol_20"] = np.sqrt(gk_term.rolling(20).mean().clip(lower=0))
+
+    # Amihud illiquidity: |return| / (volume * close)（出来高×価格 = 取引代金）
+    # 日次値を20日平均で平滑化
+    dollar_volume = volume * close
+    amihud_daily = np.abs(df["daily_return"]) / dollar_volume.replace(0, np.nan)
+    df["amihud_illiq_20"] = amihud_daily.rolling(20).mean()
+    # スケールが極端なのでlog化
+    df["amihud_illiq_20_log"] = np.log1p(df["amihud_illiq_20"].fillna(0) * 1e9)
+
+    # Volume shock persistence: 直近5日の出来高比率の安定度
+    # 出来高ショック（volume_ratio）が継続しているかを表す
+    df["volume_shock_5d"] = df["volume_ratio"].rolling(5).mean()
+    df["volume_shock_persist"] = (
+        (df["volume_ratio"] > 1.5).rolling(5).sum() / 5
+    )
 
     return df

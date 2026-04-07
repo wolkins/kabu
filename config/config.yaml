@@ -37,6 +37,15 @@ market_indices:
   - "^N225"    # 日経225
   - "^GSPC"    # S&P 500
   - "JPY=X"    # USD/JPY
+  - "EURJPY=X" # EUR/JPY（追加）
+  - "ES=F"     # S&P500先物（アジア時間先行指標）
+  - "NQ=F"     # NASDAQ先物
+  - "^TNX"     # 米国10年金利
+  - "^IRX"     # 米国3ヶ月金利
+
+# ボラティリティ指数（リスクオン/オフレジーム）
+volatility_indices:
+  - "^VIX"     # 米国VIX（日経VI(^N225VI)はyfinanceで取得不可のため除外）
 
 # コモディティ指標
 commodities:

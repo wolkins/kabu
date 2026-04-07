@@ -72,9 +72,34 @@ def add_market_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     except FileNotFoundError:
         pass
 
+    # --- ボラティリティ指数（VIX, 日経VI）---
+    for vix_ticker in config.get("volatility_indices", []):
+        try:
+            vix_df = load_raw(vix_ticker)
+        except FileNotFoundError:
+            continue
+
+        safe = vix_ticker.replace("^", "").replace("=", "").replace(".", "_")
+        vix_close = vix_df["Close"]
+
+        # レベル（生値）
+        df[f"{safe}_level"] = vix_close.reindex(df.index)
+        # 5日変化率
+        df[f"{safe}_change5"] = vix_close.pct_change(5).reindex(df.index)
+        # 1日変化率
+        df[f"{safe}_change1"] = vix_close.pct_change().reindex(df.index)
+        # 252日パーセンタイル順位（高ボラ/低ボラレジーム）
+        vix_pctl = vix_close.rolling(252).rank(pct=True)
+        df[f"{safe}_regime"] = vix_pctl.reindex(df.index)
+        # 20日平均からの乖離
+        vix_sma20 = vix_close.rolling(20).mean()
+        df[f"{safe}_dev20"] = ((vix_close / vix_sma20) - 1).reindex(df.index)
+
     # 前方参照を防ぐため、市場指標は1日シフト
+    market_prefixes = ["N225", "GSPC", "JPY", "EURJPY", "ESF", "NQF",
+                       "TNX", "IRX", "market_", "VIX", "N225VI"]
     market_cols = [c for c in df.columns if any(
-        c.startswith(p) for p in ["N225", "GSPC", "JPY", "market_"]
+        c.startswith(p) for p in market_prefixes
     )]
     for col in market_cols:
         df[col] = df[col].shift(1)
@@ -361,7 +386,12 @@ def build_all_features(config: dict | None = None) -> pd.DataFrame:
                  "weekly_momentum_accel", "monthly_momentum_accel",
                  "regime_trend", "regime_strength", "regime_vol_state",
                  "regime_up_ratio", "regime_drawdown",
-                 "sector_relative_return"]
+                 "sector_relative_return",
+                 # Phase 1 ミクロ構造特徴量
+                 "overnight_gap", "intraday_return", "intraday_reversal",
+                 "parkinson_vol_20", "garman_klass_vol_20",
+                 "amihud_illiq_20_log", "volume_shock_5d",
+                 "volume_shock_persist"]
 
     # クロスセクション特徴量を一括計算（fragmentation回避）
     cs_frames = []
