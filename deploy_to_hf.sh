@@ -15,7 +15,16 @@ fi
 python deploy_to_hf.py
 
 # デプロイ後にSpaceを起こす（スリープ回避）
-echo "Spaceにアクセスしてウォームアップ中..."
-curl -s -o /dev/null -w "  ウォームアップ: HTTP %{http_code}\n" \
-    "https://fukuhaera-kabu-dashboard.hf.space/" \
-    --max-time 30 || true
+# Privateなのでトークンが必要
+TOKEN_FILE="$SCRIPT_DIR/.hf_token"
+if [ -f "$TOKEN_FILE" ]; then
+    HF_TOKEN=$(cat "$TOKEN_FILE")
+fi
+
+if [ -n "$HF_TOKEN" ]; then
+    echo "Spaceにアクセスしてウォームアップ中..."
+    curl -s -o /dev/null -w "  ウォームアップ: HTTP %{http_code}\n" \
+        -H "Authorization: Bearer ${HF_TOKEN}" \
+        "https://fukuhaera-kabu-dashboard.hf.space/" \
+        --max-time 30 || true
+fi
